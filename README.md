@@ -12,4 +12,4 @@ The data and script for cleaning the data can be found in this folder.
 
 The tools for analyising the data can be found in the jupyter notebook. 
 
-[![Screenshot-2024-04-09-at-07-35-51.png](https://i.postimg.cc/7620JByN/Screenshot-2024-04-09-at-07-35-51.png)](https://postimg.cc/tZ9YLNJ1)
+[![Screenshot-2024-04-09-at-07-39-19.png](https://i.postimg.cc/Bbcj0kxX/Screenshot-2024-04-09-at-07-39-19.png)](https://postimg.cc/jn2x683b)
