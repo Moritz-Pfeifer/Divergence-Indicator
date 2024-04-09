@@ -6,7 +6,7 @@ The indicator measures the standard deviation of inflation rates (HICP), wage gr
 
 ● [Data](https://github.com/Moritz-Pfeifer/Divergence-Indicator/tree/main/Data) 
 
-The data and script for cleaning the data can be found in this folder. For economists who would like to use the indicator, they can quickly find it in the [Index_Q.xlsx](https://github.com/Moritz-Pfeifer/Divergence-Indicator/blob/main/Data/Index_Q.xlsx) file under column 'J' in the sheet 'Scaled Deviations'. 
+The data and script for cleaning the data can be found in this folder. For economists interested in using the indicator, they can quickly find it in the [Index_Q.xlsx](https://github.com/Moritz-Pfeifer/Divergence-Indicator/blob/main/Data/Index_Q.xlsx) file under column 'J' in the sheet 'Scaled Deviations'. 
 
 ● [Bayesian Analysis](https://github.com/Moritz-Pfeifer/Divergence-Indicator/blob/main/Divergenz.ipynb)
 
