@@ -1,0 +1,109 @@
+
+if(!("vars" %in% installed.packages())) install.packages("vars")
+if(!("svars" %in% installed.packages())) install.packages("svars")
+
+##########################
+### Load and plot data ###
+##########################
+
+library(rmatio)
+uhlig <- rmatio::read.mat("Uhlig_Data_Updated.mat")
+y <- uhlig$data
+colnames(y) <- unlist(uhlig$varNames)
+y_ts <- ts(y, start = c(1965,1), frequency = 12)
+plot(y_ts)
+
+#################################
+### Compute impulse responses ###
+#################################
+
+# Reduced form model
+var_model <- vars::VAR(y, p = 12, type = "none")
+
+# Structural models
+svar_model_ng <- svars::id.ngml(var_model)
+svar_model_ica <- svars::id.dc(var_model)
+
+# IRFS (no bands)
+irf_ng <- vars::irf(svar_model_ng, n.ahead = 60)
+plot(irf_ng)
+
+irf_ica <- vars::irf(svar_model_ica, n.ahead = 60)
+plot(irf_ica)
+
+# IRFS (with bands)
+cores <- parallel::detectCores() / 2
+nboot <- 500
+irf_ng_boot <- svars::wild.boot(svar_model_ng, n.ahead = 61, nboot = nboot, nc = cores)
+plot(irf_ng_boot, ci = 0.9)
+
+irf_ica_boot <- svars::wild.boot(svar_model_ica, n.ahead = 61, nboot = nboot, nc = cores)
+plot(irf_ica_boot, ci = 0.9)
+
+# saveRDS(irf_ng_boot, "irf_ng_boot.rds")
+# saveRDS(irf_ica_boot, "irf_ica_boot")
+
+####################
+### Collect IRFs ###
+####################
+
+# Transform to irf-objects 'rbsvar' understands
+irf_obj_ica <- list(); for(i in 1:6) irf_obj_ica[[i]] <- array(NA, dim = c(6, 61, nboot))
+for(booti in 1:nboot) {
+  x <- irf_ica_boot$bootstrap[[booti]]$irf
+  for(hori in 1:61) {
+    xx <- matrix(x[hori, -1], nrow = 6)
+    for(shocki in 1:6) {
+      irf_obj_ica[[shocki]][,hori, booti] <- unlist(xx[shocki,])
+    }
+  }
+}
+irf_obj_ng <- list(); for(i in 1:6) irf_obj_ng[[i]] <- array(NA, dim = c(6, 61, nboot))
+for(booti in 1:nboot) {
+  x <- irf_ng_boot$bootstrap[[booti]]$irf
+  for(hori in 1:61) {
+    xx <- matrix(x[hori, -1], nrow = 6)
+    for(shocki in 1:6) {
+      irf_obj_ng[[shocki]][,hori, booti] <- unlist(xx[shocki,])
+    }
+  }
+}
+irf_obj_ng <- irf_obj_ng[c(6, 2:5, 1)]
+
+save_pdfs <- FALSE
+if(save_pdfs) pdf("irfs_svars_dc.pdf", width = 9, height = 9)
+rbsvar::irf_plot(irf_obj_ica,
+                 varnames = c("GDP", "Deflator", "CPI", "TotRes", "BorRes", "Fed"),
+                 leg = FALSE,
+                 mar = c(2, 2, 2, 1),
+                 color = "darkgrey",
+                 normalize = c(rep(100, 5), 40))
+if(save_pdfs) dev.off()
+
+if(save_pdfs) pdf("irfs_svars_ngml.pdf", width = 9, height = 9)
+rbsvar::irf_plot(irf_obj_ng,
+                 varnames = c("GDP", "Deflator", "CPI", "TotRes", "BorRes", "Fed"),
+                 leg = FALSE,
+                 mar = c(2, 2, 2, 1),
+                 color = "darkgrey",
+                 #plot_median = TRUE,
+                 #probs = c(0.16, 0.84),
+                 normalize = c(rep(100, 5), 40))
+if(save_pdfs) dev.off()
+
+if(save_pdfs) pdf("irfs_svars_ngml_68.pdf", width = 9, height = 9)
+rbsvar::irf_plot(irf_obj_ng,
+                 varnames = c("GDP", "Deflator", "CPI", "TotRes", "BorRes", "Fed"),
+                 leg = FALSE,
+                 mar = c(2, 2, 2, 1),
+                 color = "darkgrey",
+                 #plot_median = TRUE,
+                 probs = c(0.16, 0.84),
+                 normalize = c(rep(100, 5), 40))
+if(save_pdfs) dev.off()
+
+
+
+
+
+

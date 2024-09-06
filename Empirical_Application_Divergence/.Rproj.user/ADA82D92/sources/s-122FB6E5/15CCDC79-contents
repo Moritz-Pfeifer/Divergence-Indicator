@@ -1,0 +1,143 @@
+
+library(sgt)
+
+#############################################
+### Install and load 'rbsvar' from Github ###
+#############################################
+
+if(!("rbsvar" %in% installed.packages())) {
+  if(!("devtools" %in% installed.packages())) {
+    install.packages("devtools")
+  }
+  devtools::install_github("jetroant/rbsvar")
+  library(rbsvar)
+} else {
+  library(rbsvar)
+}
+
+##########################
+### Load and plot data ###
+##########################
+
+if(!("rmatio" %in% installed.packages())) install.packages("rmatio")
+uhlig <- rmatio::read.mat("Uhlig_Data_Updated.mat")
+y <- uhlig$data
+colnames(y) <- unlist(uhlig$varNames)
+y_ts <- ts(y, start = c(1965,1), frequency = 12)
+plot(y_ts)
+
+################################
+### Load the estimated model ###
+################################
+
+# output_uhlig <- readRDS("./empirical_application_Uhlig/output_uhlig.rds")
+output_uhlig <- readRDS("/home/jetroant/Desktop/rbsvar_final3/empirical_application_Uhlig/output_uhlig.rds")
+output_uhlig$burn <- 900000
+original_model <- output_uhlig$model
+
+####################################
+### Generate data from posterior ###
+####################################
+
+# NB: no constant term
+gen_data_from_posterior <- function(output) {
+  model <- output$model
+  m <- ncol(model$xy$yy)
+  n <- nrow(model$xy$yy)
+  lags <- model$lags
+  s <- rbsvar::post_sample(output, burn = 900000, N = 1)$s
+  A <- matrix(s[grep("a", names(s))], ncol = m)
+  B <- solve(matrix(s[grep("b", names(s))], ncol = m))
+  SGT <- matrix(s[grep("sgt", names(s))], nrow = m)
+  mc <- model$cpp_args$mean_cent
+  va <- model$cpp_args$var_adj
+  x <- model$xy$xx[1,]
+  y_new <- model$y[1:lags,]
+  for(i in 1:n) {
+    e <- rep(NA, m)
+    for(j in 1:m) e[j] <- sgt::rsgt(n = 1, mu = 0, sigma = 1, mean.cent = mc, var.adj = va,
+                                    lambda = SGT[j, 1], p = exp(SGT[j, 2]), q = exp(SGT[j, 3]))
+    temp <- t(A) %*% x + B %*% e
+    x <- c(temp, x)[1:length(x)]
+    y_new <- rbind(y_new, t(temp))
+  }
+  attributes(y_new)$A <- A
+  attributes(y_new)$B <- B
+  attributes(y_new)$SGT <- SGT
+  y_new
+}
+
+# Example:
+y_new <- gen_data_from_posterior(output_uhlig)
+plot(ts(y_new))
+dim(y); dim(y_new)
+attributes(y_new)
+
+#####################################
+### Estimate models with new data ###
+#####################################
+
+start_time <- Sys.time()
+number_of_simulations <- 100
+N <- 200000
+burn <- 100000
+results <- list()
+for(simi in 1:number_of_simulations) {
+
+  cat(paste0(simi, " / ", number_of_simulations, "... \n"))
+
+  # Generate new data (and init. new model)
+  y_new <- gen_data_from_posterior(output_uhlig)
+  new_model <- init_rbsvar(y = y_new,
+                           lags = 12,
+                           constant = F,
+                           type = "svar",
+                           shrinkage = Inf
+  )
+
+  # Sample from the posterior (~ 6 to 7 minutes)
+  op <- est_rbsvar(new_model, # Use newly generated data
+                   output = output_uhlig, # Use the existing sample for init.
+                   new_chain = TRUE, # Do NOT continue the chains in 'output'
+                   N = N,
+                   n = 2,
+                   K = 10,
+                   parallel_chains = TRUE,
+                   parallel_likelihood = TRUE)
+
+  # Collect the results
+  s <- post_sample(op, burn = burn)$s
+  qs <- apply(s, 2, function(x) quantile(x, c(0.05, 0.25, 0.75, 0.95)))
+  pm <- apply(s, 2, mean)
+  conv <- convergence(op, burn, verbose = FALSE, graph = FALSE)
+  results[[simi]] <- list("quantiles" = qs,
+                          "post_mean" = pm,
+                          "conv" = conv,
+                          "y_new" = y_new)
+
+  cat("------- \n \n")
+}
+print(Sys.time() - start_time)
+
+# saveRDS(results, "results_empirical_sim.rds")
+# results <- readRDS("results_empirical_sim.rds")
+
+#######################
+### Collect results ###
+#######################
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

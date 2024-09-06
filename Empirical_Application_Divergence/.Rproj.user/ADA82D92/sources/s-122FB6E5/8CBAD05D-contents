@@ -1,0 +1,30 @@
+
+#################
+### Load data ###
+#################
+
+if(!("rmatio" %in% installed.packages())) install.packages("rmatio")
+Yimp <- rmatio::read.mat("YimpBootstrap.mat")[[1]]
+
+dim(Yimp)
+
+# Transform to irf-object 'rbsvar' understands
+nboot <- dim(Yimp)[4]
+hor <- dim(Yimp)[1]
+irf_obj_fastgmm <- list(); for(i in 1:6) irf_obj_fastgmm[[i]] <- array(NA, dim = c(6, hor, nboot))
+for(booti in 1:nboot) {
+  x <- Yimp[,,,booti]
+  for(shocki in 1:6) {
+    irf_obj_fastgmm[[shocki]][,,booti] <- t(x[,,shocki])
+  }
+}
+
+save_pdfs <- FALSE
+if(save_pdfs) pdf("irfs_fastgmm.pdf", width = 9, height = 9)
+rbsvar::irf_plot(irf_obj_fastgmm,
+                 varnames = c("GDP", "Deflator", "CPI", "TotRes", "BorRes", "Fed"),
+                 leg = FALSE,
+                 mar = c(2, 2, 2, 1),
+                 color = "darkgrey",
+                 normalize = c(rep(100, 5), 50))
+if(save_pdfs) dev.off()

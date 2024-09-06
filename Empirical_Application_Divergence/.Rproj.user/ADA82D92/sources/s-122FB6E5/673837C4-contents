@@ -1,0 +1,398 @@
+
+tex_table <- FALSE
+if(tex_table) {
+  library(dplyr)
+  library(knitr)
+  library(kableExtra)
+}
+
+#############################################
+### Install and load 'rbsvar' from Github ###
+#############################################
+
+if(!("rbsvar" %in% installed.packages())) {
+  if(!("devtools" %in% installed.packages())) {
+    install.packages("devtools")
+  }
+  devtools::install_github("jetroant/rbsvar")
+  library(rbsvar)
+} else {
+  library(rbsvar)
+}
+
+##########################
+### Load and plot data ###
+##########################
+
+if(!("rmatio" %in% installed.packages())) install.packages("rmatio")
+uhlig <- rmatio::read.mat("Uhlig_Data_Updated.mat")
+y <- uhlig$data
+colnames(y) <- unlist(uhlig$varNames)
+y_ts <- ts(y, start = c(1965,1), frequency = 12)
+plot(y_ts)
+
+##########################
+### Estimate the model ###
+##########################
+
+# init_rbsvar() initializes the model and chooses efficient initial values for
+# when sampling from the posterior distribution of the parameters in the next step.
+svar_uhlig <- init_rbsvar(y = y,
+                          lags = 12,
+                          constant = F,
+                          type = "svar",
+                          shrinkage = Inf
+)
+
+# est_rbsvar() estimates the model by drawing n(=2) chains from the posterior
+# distribution of the parameters, starting from values provided by init_rbsvar().
+# Chains are of length K*N (=10*N) and they are thinned by a factor of K(=10),
+# thus the final sample consists of n*N (=2*N) non-independent draws. The chains
+# are drawn with differential evolution Monte Carlo algorithm.
+#
+# Even though the algorithm is parallelized, this might take some time. The computation
+# time is highly dependent of the number of processor cores available (among other things).
+# On a desktop computer with Ryzen 3950X CPU (16/32 cores) this took approximately 80 minutes.
+# (Down to ~30 min after updates to 'rbsvar')
+N <- 1000000
+burn <- 900000
+output_uhlig <- est_rbsvar(svar_uhlig,
+                           N = N,
+                           n = 2,
+                           K = 10,
+                           parallel_chains = TRUE,
+                           parallel_likelihood = TRUE)
+
+# Save the posterior sample (Or load)
+saveRDS(output_uhlig, "output_uhlig.rds")
+# output_uhlig <- readRDS("./empirical_application_Uhlig/output_uhlig.rds")
+
+# convergence() computes the R_hat convergence statistic of Gelman et al. (2013)
+# with respect to every parameter in the model and plots the results.
+# Values below the threshold of 1.1 can be interpreted as implying convergence of the chains.
+convergence_uhlig <- convergence(output_uhlig, burn = burn)
+
+# Density trace plot
+plot_densities(output_uhlig)
+
+# "Least converged" parameters
+plot_chains(output_uhlig, variable = rownames(convergence_uhlig[order(convergence_uhlig[,1], decreasing = T),])[1], burn = burn)
+plot_chains(output_uhlig, variable = rownames(convergence_uhlig[order(convergence_uhlig[,1], decreasing = T),])[2], burn = burn)
+plot_chains(output_uhlig, variable = rownames(convergence_uhlig[order(convergence_uhlig[,1], decreasing = T),])[3], burn = burn)
+
+# Some other parameters
+plot_chains(output_uhlig,
+            "a2",
+            burn = burn)
+plot_chains(output_uhlig,
+            "a8",
+            burn = burn)
+plot_chains(output_uhlig,
+            "a14",
+            burn = burn)
+
+plot_chains(output_uhlig,
+            "sgt12",
+            burn = burn)
+plot_chains(output_uhlig,
+            "sgt18",
+            burn = burn)
+
+####################################
+### Tail exponents of the shocks ### (Highly dependent of convergence)
+####################################
+
+post <- post_sample(output_uhlig, burn)
+
+# Sgt posterior means
+sgt_postmean <- matrix(apply(post$s[,grep("sgt", colnames(post$s))], 2, mean), ncol = 3)
+colnames(sgt_postmean) <- c("skew", "log_p", "log_q")
+sgt_postmean
+
+# Tail exponent marginal posteriors (Uncomment commented lines to produce pdf-file of the figure)
+# pdf("./empirical_application_Uhlig/tailexponent_uhlig.pdf", width = 9, height = 6)
+par(mfrow = c(2,3))
+post <- post_sample(output_uhlig, burn)
+te_mat <- matrix(NA, ncol = ncol(y), nrow(post$s))
+for(i in 1:ncol(y)) {
+  log_p <- post$s[,which(colnames(post$s) == "sgt6") + i]
+  log_q <- post$s[,which(colnames(post$s) == "sgt12") + i]
+  tail_exponent <- exp(log_p + log_q)
+  hist(tail_exponent, breaks = 10, probability = T, col = "peachpuff", xlab = "Tail exponent",
+       main = paste0("Shock ", i, " / Pr[variance exists] = ", round(100*mean(tail_exponent > 2),1), "%"))
+}
+par(mfrow = c(1,1))
+# dev.off()
+
+##############################
+### Skewness of the shocks ### (Skew-parameter (support from -1 to 1), NOT skewness in moment sense)
+##############################
+
+post_skew <- post$s[,grep("sgt", colnames(post$s))][,1:6]
+par(mfrow = c(2,3))
+for(i in 1:6) {
+  hist(post_skew[,i], breaks = 10, probability = T, col = "peachpuff", xlab = "lambda",
+       main = paste0("Shock ", i))
+}
+par(mfrow = c(1,1))
+
+##################################
+### Impulse response functions ### (These takes some time to compute due to lack of parallelization)
+##################################
+
+# Compute impulse responses of all the shocks to all variables
+irf_obj_all <- irf(model = svar_uhlig,
+                   output = output_uhlig,
+                   burn = burn,
+                   N = 10000,
+                   horizon = 60,
+                   cumulate = c())
+
+# Compute impulse responses of the supposed monetary policy shock to all variables
+irf_obj_mon <- irf(model = svar_uhlig,
+                   output = output_uhlig,
+                   burn = burn,
+                   N = 10000,
+                   horizon = 60,
+                   cumulate = c(),
+                   shocks = 6)
+
+# Compute impulse responses of the unlabeled demand shock to all variables
+irf_obj_dem <- irf(model = svar_uhlig,
+                   output = output_uhlig,
+                   burn = burn,
+                   N = 10000,
+                   horizon = 60,
+                   cumulate = c(),
+                   shocks = 1)
+
+# Save the impulse response objects (Or load)
+saveRDS(irf_obj_all, "./empirical_application_Uhlig/irf_obj_all.rds")
+saveRDS(irf_obj_mon, "./empirical_application_Uhlig/irf_obj_mon.rds")
+saveRDS(irf_obj_dem, "./empirical_application_Uhlig/irf_obj_dem.rds")
+# irf_obj_all <- readRDS("./empirical_application_Uhlig/irf_obj_all.rds")
+# irf_obj_mon <- readRDS("./empirical_application_Uhlig/irf_obj_mon.rds")
+# irf_obj_dem <- readRDS("./empirical_application_Uhlig/irf_obj_dem.rds")
+
+# Plot the impulse response functions and optionally save them as pdf-files.
+#     The Fed rate is plotted in basis points, whereas the other variables
+#     are in percentage points.
+
+#pdf("./empirical_application_Uhlig/irf_uhlig_all.pdf", width = 9, height = 9)
+irf_plot(irf_obj_all,
+         varnames = c("GDP", "Deflator", "CPI", "TotRes", "BorRes", "Fed"),
+         leg = FALSE,
+         mar = c(2,2,2,1),
+         normalize = c(rep(100, 6), 1))
+#dev.off()
+
+#pdf("./empirical_application_Uhlig/irf_uhlig_mon.pdf", width = 7, height = 5)
+irf_plot(irf_obj_mon,
+         varnames = c("GDP", "Deflator", "CPI", "TotRes", "BorRes", "Fed"),
+         leg = FALSE,
+         mar = c(2,2,2,1),
+         mfrow = c(2,3),
+         normalize = c(rep(100, 6), 1))
+#dev.off()
+
+#pdf("./empirical_application_Uhlig/irf_uhlig_dem.pdf", width = 7, height = 5)
+irf_plot(irf_obj_dem,
+         varnames = c("GDP", "Deflator", "CPI", "TotRes", "BorRes", "Fed"),
+         leg = FALSE,
+         mar = c(2,2,2,1),
+         mfrow = c(2,3),
+         normalize = c(rep(100, 6), 1))
+#dev.off()
+
+### MP-shock conditional on one sign restriction derived from RR ###
+
+f <- function(x) if(sum(x[24:61] > 0) == 0) return(1) else return(0)
+t <- apply(irf_obj_mon[[6]][2,,], 2, f)
+irf_obj_mon_cond <- irf_obj_mon
+irf_obj_mon_cond[[6]] <- irf_obj_mon[[6]][,,which(t == 1)]
+
+irf_plot(irf_obj_mon_cond,
+         varnames = c("GDP", "Deflator", "CPI", "TotRes", "BorRes", "Fed"),
+         leg = FALSE,
+         mar = c(2,2,2,1),
+         mfrow = c(2,3),
+         normalize = c(rep(100, 6), 1))
+
+#######################################
+### Historical shock decompositions ###
+#######################################
+
+# Compute historical shock decompositions
+decomp_obj <- rbsvar:::shock_decomp(model = svar_uhlig,
+                           output = output_uhlig,
+                           burn = burn,
+                           N = 10000)
+
+# October 1979 shock decomposition
+decomp_oct_1979 <- rbsvar:::shock_decomp_pick(decomp_obj = decomp_obj,
+                                     show_date = c(1979,10),
+                                     start_date = c(1966,1), # 12 lags
+                                     freq = 12)
+
+# April 1974 shock decomposition
+decomp_april_1974 <- rbsvar:::shock_decomp_pick(decomp_obj = decomp_obj,
+                                       show_date = c(1974,4),
+                                       start_date = c(1966,1),
+                                       freq = 12)
+
+# December 1988 shock decomposition
+decomp_dec_1988 <- rbsvar:::shock_decomp_pick(decomp_obj = decomp_obj,
+                                     show_date = c(1988,12),
+                                     start_date = c(1966,1),
+                                     freq = 12)
+
+# February 1994 shock decomposition
+decomp_feb_1994 <- rbsvar:::shock_decomp_pick(decomp_obj = decomp_obj,
+                                     show_date = c(1994,2),
+                                     start_date = c(1966,1),
+                                     freq = 12)
+
+# December 1990 shock decomposition
+decomp_dec_1990 <- rbsvar:::shock_decomp_pick(decomp_obj = decomp_obj,
+                                     show_date = c(1990,12),
+                                     start_date = c(1966,1),
+                                     freq = 12)
+
+# October 1998 shock decomposition
+decomp_oct_1998 <- rbsvar:::shock_decomp_pick(decomp_obj = decomp_obj,
+                                     show_date = c(1998,10),
+                                     start_date = c(1966,1),
+                                     freq = 12)
+
+# April 2001 shock decomposition
+decomp_april_2001 <- rbsvar:::shock_decomp_pick(decomp_obj = decomp_obj,
+                                       show_date = c(2001,4),
+                                       start_date = c(1966,1),
+                                       freq = 12)
+
+# November 2002 shock decomposition
+decomp_nov_2002 <- rbsvar:::shock_decomp_pick(decomp_obj = decomp_obj,
+                                     show_date = c(2002,11),
+                                     start_date = c(1966,1),
+                                     freq = 12)
+
+
+#pdf("./empirical_application_Uhlig/shock_signs.pdf", width = 9, height = 7)
+# Positive/Contractionary monetary policy shocks:
+par(mfrow = c(2,4))
+par(mar = c(2,2,2,1))
+#xlims <- round(mean(decomp_april_1974$E[,6]) + c(-10, 10))
+hist(decomp_april_1974$E[,6], main = "April 1974",
+     col = "darkolivegreen3", probability = T)
+#     xlim = xlims, breaks = seq(xlims[1]-10, xlims[2]+10, 0.5))
+#xlims <- round(mean(decomp_oct_1979$E[,6]) + c(-5, 5))
+hist(decomp_oct_1979$E[,6], main = "October 1979",
+     col = "darkolivegreen3", probability = T)
+#     xlim = xlims, breaks = seq(xlims[1]-5, xlims[2]+5, 0.5))
+#xlims <- round(mean(decomp_dec_1988$E[,6]) + c(-5, 5))
+hist(decomp_dec_1988$E[,6], main = "December 1988",
+     col = "darkolivegreen3", probability = T)
+#     xlim = xlims, breaks = seq(xlims[1]-5, xlims[2]+5, 0.5))
+#xlims <- round(mean(decomp_feb_1994$E[,6]) + c(-2.5, 2.5))
+hist(decomp_feb_1994$E[,6], main = "February 1994",
+     col = "darkolivegreen3", probability = T)
+abline(v = 0, lty = 2, lwd = 2)
+     #xlim = xlims, breaks = seq(xlims[1]-5, xlims[2]+5, 0.25))
+#abline(v = 0, lwd = 2, lty = 2)
+
+# Negative/Expansionary monetary policy shocks:
+#xlims <- round(mean(decomp_dec_1990$E[,6]) + c(-2.5, 2.5))
+hist(decomp_dec_1990$E[,6], main = "December 1990",
+     col = "salmon", probability = T, breaks = 10)
+abline(v = 0, lty = 2, lwd = 2)
+     #xlim = xlims, breaks = seq(xlims[1]-5, xlims[2]+5, 0.25))
+#abline(v = 0, lwd = 2, lty = 2)
+#xlims <- round(mean(decomp_oct_1998$E[,6]) + c(-2.5, 2.5))
+hist(decomp_oct_1998$E[,6], main = "October 1998",
+     col = "salmon", probability = T)
+     #xlim = xlims, breaks = seq(xlims[1]-5, xlims[2]+5, 0.25))
+#xlims <- round(mean(decomp_april_2001$E[,6]) + c(-2.5, 2.5))
+hist(decomp_april_2001$E[,6], main = "April 2001",
+     col = "salmon", probability = T)
+     #xlim = xlims, breaks = seq(xlims[1]-5, xlims[2]+5, 0.25))
+#xlims <- round(mean(decomp_nov_2002$E[,6]) + c(-2.5, 2.5))
+hist(decomp_nov_2002$E[,6], main = "November 2002",
+     col = "salmon", probability = T, breaks = 10)
+     #xlim = xlims, breaks = seq(xlims[1]-5, xlims[2]+5, 0.25))
+par(mfrow = c(1,1))
+#dev.off()
+
+#############################################
+### Narrative signs - shock probabilities ###
+#############################################
+
+narrative_sign_probs <- function(decomp_obj,
+                                 start_date,
+                                 freq,
+                                 dates,
+                                 signs) {
+
+  N <- dim(decomp_obj$E)[1]
+  m <- dim(decomp_obj$E)[3]
+  probs <- matrix(NA, nrow = length(dates), ncol = m)
+  total_probs <- rep(NA, m)
+  for(i in 1:m) {
+    for(j in 1:length(dates)) {
+      picked <- rbsvar:::shock_decomp_pick(decomp_obj, show_date = dates[[j]], start_date = start_date, freq = freq)
+      if(signs[j] == 1) agree_dummy <- picked$E[,i] > 0
+      if(signs[j] == -1) agree_dummy <- picked$E[,i] < 0
+      if(j == 1) {
+        agree_dummies <- agree_dummy
+      } else {
+        agree_dummies <- cbind(agree_dummies, agree_dummy)
+      }
+    }
+    probs[,i] <- apply(agree_dummies, 2, mean)
+    total_probs[i] <- mean(apply(agree_dummies, 1, function(x) ifelse(sum(x) == length(x), TRUE, FALSE)))
+  }
+  ret <- rbind(probs, total_probs)
+  rownames(ret) <- c(1:length(dates), "Total")
+  ret
+}
+
+date_list <- list(c(1974,4),
+                  c(1979,10),
+                  c(1988,12),
+                  c(1994,2),
+                  c(1990,12),
+                  c(1998,10),
+                  c(2001,4),
+                  c(2002,11))
+probs <- narrative_sign_probs(decomp_obj = decomp_obj,
+                              start_date = c(1966,1),
+                              freq = 12,
+                              dates = date_list,
+                              signs = c(1,1,1,1,-1,-1,-1,-1)
+                              )
+for(i in 1:length(date_list)) {
+  rownames(probs)[i] <- paste(date_list[[i]][1], date_list[[i]][2], sep = "/")
+}
+colnames(probs) <- paste("Shock", 1:ncol(y))
+
+# Fraction of the posterior satisfying the narrative sign restrictions for every shock
+round(probs, 2)
+saveRDS(probs, "narrative_probs.rds")
+
+# Tex table of the above
+if(tex_table) {
+  rownames(probs)[nrow(probs)] <- " "
+  knitr::kable(round(probs, 2),
+               "latex", booktabs = T, align = "r",
+               caption = "Fraction of the posterior satisfying the narrative sign restrictions for every shock") %>%
+    kable_styling(latex_options = c("hold_position")) %>%
+    kableExtra::pack_rows(index = c("Contractionary shocks" = 4, "Expansionary shocks" = 4, "Total" = 1)) %>%
+    kable_styling(position = "center") %>%
+    kable_styling(font_size = 12)
+}
+
+
+
+
+
+
+

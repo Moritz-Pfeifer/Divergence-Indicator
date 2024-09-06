@@ -1,0 +1,28 @@
+{
+    "id": "7C727052",
+    "path": null,
+    "project_path": null,
+    "type": "object_explorer",
+    "hash": "0",
+    "contents": "",
+    "dirty": false,
+    "created": 1716467693320.0,
+    "source_on_save": false,
+    "relative_order": 4,
+    "properties": {
+        "id": "14022c63f65a4b0e90c3a8b88a1410dd",
+        "name": "output_uhlig",
+        "title": "output_uhlig",
+        "language": "R",
+        "source_window_id": "",
+        "Source": "Source"
+    },
+    "folds": "",
+    "lastKnownWriteTime": 0,
+    "encoding": "",
+    "collab_server": "",
+    "source_window": "",
+    "last_content_update": 1716467693320,
+    "read_only": false,
+    "read_only_alternatives": []
+}

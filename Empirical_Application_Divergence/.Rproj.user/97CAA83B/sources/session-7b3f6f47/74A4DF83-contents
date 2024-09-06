@@ -1,0 +1,75 @@
+library(readxl)
+library(ggplot2)
+library(dplyr)
+library(gridExtra)
+library(tidyverse)
+library(scales)
+
+
+
+path_inflation <- "/Users/moritzpfeifer/Desktop/inflation.xlsx"
+path_house_prices <- "/Users/moritzpfeifer/Desktop/hous_prices.xlsx"
+path_indicator <- "/Users/moritzpfeifer/Desktop/indicator.xlsx"
+
+
+inflation <- read_excel(path_inflation)
+house_prices <- read_excel(path_house_prices)
+indicator <- read_excel(path_indicator)
+
+house_prices$Date <- as.Date(house_prices$Date, format="%Y/%m/%d")
+
+p1 <- ggplot(house_prices, aes(x = Date)) +
+  geom_line(aes(y = Spain, color = "Spain")) +
+  geom_line(aes(y = Germany, color = "Germany")) +
+  labs(title = NULL, x = NULL, y = "Index 1999Q1=100") +
+  scale_color_manual(values = c("Spain" = "#115472", "Germany" = "#8599AA"), name = NULL) +
+  theme_minimal() +
+  theme(legend.position = "bottom",
+        panel.grid.major = element_line(linetype = "dotted", color = "lightgrey"),
+        panel.grid.minor = element_blank())
+
+# Second plot
+p2 <- ggplot(inflation, aes(x = reorder(Country, Inflation), y = Inflation)) +
+  geom_bar(stat = "identity", fill = "#156082") +
+  coord_flip() +
+  labs(title = NULL, x = NULL, y = "Inflation") +
+  theme_minimal() +
+  theme(panel.grid.major = element_line(linetype = "dotted", color = "lightgrey"),
+        panel.grid.minor = element_blank())
+
+# Combine the plots
+grid.arrange(p1, p2, ncol = 2)
+
+# Convert the Date column to date format
+indicator$Date <- as.Date(indicator$Date, format = "%d/%m/%Y")
+
+indicator_long <- indicator %>%
+  pivot_longer(cols = -Date, names_to = "Indicator", values_to = "Value")
+
+# Determine the minimum and maximum years in the data
+min_date <- min(indicator_long$Date)
+max_date <- max(indicator_long$Date)
+
+# Create a sequence of dates every 2 years starting from the first January after the min_date
+date_breaks <- seq(from = as.Date(format(min_date, "%Y-01-01")), to = max_date, by = "1 years")
+
+
+# Create the stacked line chart
+ggplot(indicator_long, aes(x = Date, y = Value, fill = Indicator)) +
+  geom_area(alpha = 1) +
+  theme_minimal() +
+  labs(x = NULL,
+       y = "Divergence Indicator",
+       fill = "") +
+  scale_fill_manual(values = c("Inflation" = "#2E5F7F",
+                               "Wage Growth" = "#1E4159",
+                               "GDP per Capita" = "#798C9F",
+                               "Real Growth" = "#244D67",
+                               "Debt to GDP" = "#A4AEBA",
+                               "Balance of Trade" = "#BFC8CF",
+                               "Real Ex Rates" = "#295674")) +
+  scale_x_date(breaks = date_breaks, labels = date_format("%Y")) +
+  theme(legend.position = "bottom",
+        axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1)) +
+  theme(panel.grid.major = element_line(linetype = "dotted", color = "lightgrey"),
+        panel.grid.minor = element_blank())
